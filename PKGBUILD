@@ -15,5 +15,5 @@ package() {
   install -d -m0755 "${pkgdir}/etc/udev/rules.d"
   install -m0644 "${srcdir}/95-yubikey-hotplug.rules" "${pkgdir}/etc/udev/rules.d/"
   install -d -m0755 "${pkgdir}/usr/bin"
-  install -m0644 "${srcdir}/yubikey-hotplug" "${pkgdir}/usr/bin/"
+  install -m0755 "${srcdir}/yubikey-hotplug" "${pkgdir}/usr/bin/"
 }
