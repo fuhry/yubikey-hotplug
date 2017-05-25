@@ -1,0 +1,3 @@
+ACTION=="add",    SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="1050", ENV{ID_MODEL_ID}=="0116", RUN+="/usr/bin/yubikey-hotplug connect"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="1050", ENV{ID_MODEL_ID}=="0116", RUN+="/usr/bin/yubikey-hotplug disconnect"
+

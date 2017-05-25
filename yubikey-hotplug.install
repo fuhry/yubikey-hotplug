@@ -1,0 +1,9 @@
+#!/bin/bash
+
+post_install() {
+	udevadm control --reload-rules
+	
+	echo ">> Note! To use yubikey-hotplug, write the serial number (1 per"
+	echo ">> line) of your yubikey(s) to the file:"
+	echo ">> ~/.config/yubikey-hotplug/serials"
+}

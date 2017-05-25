@@ -1,0 +1,99 @@
+#!/bin/bash
+
+ykserial()
+{
+	export LANG=en_US.UTF-8
+	ykman info | grep '^Serial number:' | cut -d: -f2 | tr -dc '[0-9]'
+}
+
+foreach_passwd()
+{
+	call="$1"
+	while read line; do
+		IFS=: line=($line)
+		user="${line[0]}"
+		password="${line[1]}"
+		uid="${line[2]}"
+		gid="${line[3]}"
+		gecos="${line[4]}"
+		home="${line[5]}"
+		loginshell="${line[6]}"
+		
+		eval $call
+	done < /etc/passwd
+}
+
+get_xscreen()
+{
+	who | egrep "^${1}\b" | egrep -q '\(:[0-9]+\)$' | tr -d '()'
+	return $?
+}
+
+unlock()
+{
+	test -d "$home/.config/yubikey-hotplug" || return 0
+	screen=$(get_xscreen "$user")
+	[ $? -ne 0 ] && return 0
+	if fgrep -qx $serial "$home/.config/yubikey-hotplug/serials" ; then
+		flag_file="$home/.config/yubikey-hotplug/require-unlocked-plugin"
+		screensaver_command="/usr/bin/env DISPLAY=${screen} XAUTHORITY=/run/user/$uid/gdm/Xauthority DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus mate-screensaver-command"
+		screensaver_state=$(su "$user" -c "$screensaver_command -q" | egrep -o '\b(in)?active\b')
+		if [ -f "$flag_file" ]; then
+			if [ "$screensaver_state" = "active" ]; then
+				logger -p kern.info "Refusing to unlock $user's screen as their yubikey was removed while the screensaver was active."
+			elif [ "$screensaver_state" = "inactive" ]; then
+				logger -p kern.info "$user's Yubikey inserted while screen unlocked. Removing flag file to re-enable Yubikey unlock."
+				rm -f "$flag_file"
+			fi
+		elif [ "$screensaver_state" = "active" ]; then
+			logger -p kern.info "Unlocking screen for user $user ($uid) due to Yubikey connect"
+			su "$user" -c "$screensaver_command -d"
+		elif [ "$screensaver_state" = "inactive" ]; then
+			logger -p kern.info "Yubikey connected but $user's screen is not locked. Doing nothing."
+		fi
+	fi
+}
+
+lock()
+{
+	test -d "$home/.config/yubikey-hotplug" || return 0
+	screen=$(get_xscreen "$user")
+	[ $? -ne 0 ] && return 0
+	screensaver_command="/usr/bin/env DISPLAY=${screen} XAUTHORITY=/run/user/$uid/gdm/Xauthority DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus mate-screensaver-command"
+	screensaver_state=$(su "$user" -c "$screensaver_command -q" | egrep -o '\b(in)?active\b')
+	flag_file="$home/.config/yubikey-hotplug/require-unlocked-plugin"
+	if [ "$screensaver_state" = "active" ]; then
+		logger -p kern.info "Yubikey unplugged while $user's screensaver was active. The user must plug their Yubikey in while the screen is unlocked to reenable unlocking."
+		touch "$flag_file"
+		chown $uid:$gid "$flag_file"
+	elif [ "$screensaver_state" = "inactive" -a ! -f "$flag_file" ]; then
+		logger -p kern.info "Locking screen for user $user ($uid) due to Yubikey disconnect"
+		su "$user" -c "$screensaver_command -l"
+	elif [ "$screensaver_state" = "inactive" -a -f "$flag_file" ]; then
+		logger -p kern.info "Ignoring Yubikey disconnect as flag file exists. Reconnect Yubikey while screen is unlocked to re-enable yubikey-hotplug."
+	fi
+}
+
+case "$1" in
+	connect)
+		serial=
+		for ((i=0; i<5; i++)); do
+			serial=`ykserial`
+			[ -n "$serial" ] && break
+			sleep 1
+		done
+		if [ -z "$serial" ]; then
+			logger -p kern.warn "Yubikey connected but unable to determine its serial number."
+			exit 1
+		fi
+		logger -p kern.notice "Yubikey connected, serial #${serial}"
+		foreach_passwd unlock
+		;;
+	disconnect)
+		logger -p kern.notice "Yubikey disconnected"
+		foreach_passwd lock
+		;;
+	*)
+		echo "Usage: $0 (connect|disconnect)"
+		;;
+esac
